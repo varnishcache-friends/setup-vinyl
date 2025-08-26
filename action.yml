@@ -45,7 +45,7 @@ runs:
           refname="varnish-$refname"
         fi
         echo "REFNAME=$refname" >> $GITHUB_OUTPUT
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v5
       with:
         repository: "varnishcache/varnish-cache"
         ref: ${{ steps.refs.outputs.REFNAME }}
@@ -78,4 +78,5 @@ runs:
         brew uninstall \
           automake \
           docutils \
+          libtool \
           sphinx-doc
