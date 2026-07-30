@@ -1,9 +1,9 @@
-name: "Setup Varnish HTTP Cache"
-description: "Setup Varnish HTTP Cache"
+name: "Setup Vinyl HTTP Cache"
+description: "Setup Vinyl HTTP Cache"
 author: "varnishcache-friends"
 inputs:
   version:
-    description: "Varnish HTTP Cache version to use"
+    description: "Vinyl HTTP Cache version to use"
     default: "master"
   make-jobs:
     description: "Number of jobs (commands) to run simultaneously"
@@ -47,9 +47,11 @@ runs:
         echo "REFNAME=$refname" >> $GITHUB_OUTPUT
     - uses: actions/checkout@v5
       with:
-        repository: "varnishcache/varnish-cache"
+        repository: "vinyl-cache/vinyl-cache"
         ref: ${{ steps.refs.outputs.REFNAME }}
-    - name: Build and install varnish-cache
+        submodules: true
+        github-server-url: https://code.vinyl-cache.org
+    - name: Build and install vinyl-cache
       shell: bash
       run: |
         ./autogen.sh
