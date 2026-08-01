@@ -1,0 +1,47 @@
+name: test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: ${{ matrix.os }} / ${{ matrix.product }} ${{ matrix.version }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            version: main
+            product: vinyl
+          - os: ubuntu-latest
+            version: '9.0.1'
+            product: vinyl
+          - os: ubuntu-latest
+            version: '8.0.2'
+            product: varnish
+          - os: ubuntu-latest
+            version: '6.0.18'
+            product: varnish
+          - os: macos-latest
+            version: main
+            product: vinyl
+          - os: macos-latest
+            version: '9.0.1'
+            product: vinyl
+          - os: macos-latest
+            version: '8.0.2'
+            product: varnish
+          - os: macos-latest
+            version: '6.0.18'
+            product: varnish
+    steps:
+      - uses: actions/checkout@v7
+      - name: Setup Vinyl Cache
+        uses: ./
+        with:
+          version: ${{ matrix.version }}
+          make-jobs: 4

@@ -1,13 +1,13 @@
-name: "Setup Vinyl HTTP Cache"
-description: "Setup Vinyl HTTP Cache"
+name: "Setup Vinyl Cache"
+description: "Setup Vinyl Cache"
 author: "varnishcache-friends"
 inputs:
   version:
-    description: "Vinyl HTTP Cache version to use"
-    default: "master"
+    description: "Vinyl Cache version to use"
+    default: "main"
   make-jobs:
     description: "Number of jobs (commands) to run simultaneously"
-    default: 4
+    default: "4"
 runs:
   using: composite
   steps:
@@ -17,45 +17,90 @@ runs:
       run: |
         echo "unsupported platform"
         exit 1
+    - name: Determine refname and PCRE variant
+      id: refs
+      shell: bash
+      run: |
+        version='${{ inputs.version }}'
+        # A bare x.y.z release is mapped to the upstream tag:
+        #   vinyl-cache-x.y.z for the >= 9.0 (vinyl*) rebrand,
+        #   varnish-x.y.z     for older releases.
+        # Anything else (main, a branch, the 'last' tag) is used as-is and
+        # treated as trunk, which is Vinyl (PCRE2).
+        if [[ $version =~ ^([0-9]+)\.([0-9]+)\.[0-9]+$ ]]; then
+          major=${BASH_REMATCH[1]}
+          minor=${BASH_REMATCH[2]}
+          if [ "$major" -ge 9 ]; then
+            refname="vinyl-cache-$version"
+          else
+            refname="varnish-$version"
+          fi
+        else
+          major=99
+          minor=99
+          refname="$version"
+        fi
+        # PCRE variant: Varnish 6.0.x/6.1.x use PCRE1 (libpcre); 6.2+, 7.x, 8.x
+        # and Vinyl 9.x (plus trunk) use PCRE2 (libpcre2-8).
+        if [ "$major" -eq 6 ] && [ "$minor" -lt 2 ]; then
+          pcre=1
+        else
+          pcre=2
+        fi
+        echo "REFNAME=$refname" >> $GITHUB_OUTPUT
+        echo "PCRE_VARIANT=$pcre" >> $GITHUB_OUTPUT
     - name: Install dependencies
       if: runner.os == 'Linux'
       shell: bash
       run: |
         sudo apt-get update
-        sudo apt-get install -y \
-          libedit-dev \
-          python3-docutils \
-          python3-sphinx
+        pkgs="graphviz libedit-dev pkg-config python3-docutils python3-sphinx"
+        if [ "${{ steps.refs.outputs.PCRE_VARIANT }}" = "1" ]; then
+          pkgs="$pkgs libpcre3-dev"
+        else
+          pkgs="$pkgs libpcre2-dev"
+        fi
+        sudo apt-get install -y $pkgs
     - name: Install dependencies
       if: runner.os == 'macOS'
       shell: bash
       run: |
-        brew install \
-          automake \
-          docutils \
-          pcre \
-          sphinx-doc
-        echo "/usr/local/opt/sphinx-doc/bin" >> $GITHUB_PATH
-    - name: Determine refname
-      id: refs
+        pkgs="automake docutils graphviz libtool sphinx-doc"
+        # PCRE2 is provided by the runner base image (it is git's runtime
+        # dependency); only PCRE1 (for Varnish 6.0/6.1) is installed here.
+        if [ "${{ steps.refs.outputs.PCRE_VARIANT }}" = "1" ]; then
+          pkgs="$pkgs pcre"
+        fi
+        brew install $pkgs
+        echo "$(brew --prefix sphinx-doc)/bin" >> $GITHUB_PATH
+    - name: Checkout vinyl-cache
       shell: bash
       run: |
-        refname=${{ inputs.version }}
-        if [[ $refname =~ [0-9]+\.[0-9]+\.[0-9]+ ]]; then
-          refname="varnish-$refname"
-        fi
-        echo "REFNAME=$refname" >> $GITHUB_OUTPUT
-    - uses: actions/checkout@v5
-      with:
-        repository: "vinyl-cache/vinyl-cache"
-        ref: ${{ steps.refs.outputs.REFNAME }}
-        submodules: true
-        github-server-url: https://code.vinyl-cache.org
+        git clone https://code.vinyl-cache.org/vinyl-cache/vinyl-cache vinyl-cache
+        git -C vinyl-cache checkout "$REFNAME"
+        git -C vinyl-cache submodule update --init --recursive
+      env:
+        REFNAME: ${{ steps.refs.outputs.REFNAME }}
     - name: Build and install vinyl-cache
       shell: bash
+      working-directory: vinyl-cache
       run: |
         ./autogen.sh
-        ./configure --localstatedir=/var/lib
+        cfg_over=""
+        if [ "$RUNNER_OS" = "macOS" ]; then
+          export CFLAGS="-g -O2 -Wno-gnu-folding-constant"
+          # macOS ships <sys/endian.h> (so autoconf sets HAVE_SYS_ENDIAN_H) but
+          # it defines __DARWIN_BYTE_ORDER, not the FreeBSD _BYTE_ORDER/_BIG_ENDIAN
+          # that Varnish's vsha256.c maps VBYTE_ORDER/VBIG_ENDIAN to. Both then
+          # resolve to 0, the #if (VBYTE_ORDER == VBIG_ENDIAN) becomes 0 == 0,
+          # and it wrongly takes the big-endian memcpy path on little-endian,
+          # producing a broken SHA256 (VSHA256_Test aborts; `varnishd -V` aborts
+          # too). macOS is always little-endian, so the always-correct byte-safe
+          # #else path is what we want for every version; force it by not
+          # advertising the header to configure. (Only vsha256.c uses this flag.)
+          cfg_over="ac_cv_header_sys_endian_h=no"
+        fi
+        ./configure --localstatedir=/var/lib $cfg_over
         make -j${{ inputs.make-jobs }}
         sudo make install
     - name: Run ldconfig
@@ -64,21 +109,32 @@ runs:
       run: sudo ldconfig
     - name: Display version and revision built
       shell: bash
-      run: /usr/local/sbin/varnishd -V
+      run: |
+        for b in vinyld varnishd; do
+          if [ -x "/usr/local/sbin/$b" ]; then
+            "/usr/local/sbin/$b" -V
+            exit 0
+          fi
+        done
+        echo "error: neither vinyld nor varnishd was installed" >&2
+        exit 1
     - name: Cleanup
       if: runner.os == 'Linux'
       shell: bash
       run: |
-        sudo apt-get purge -y \
-          libedit-dev \
-          python3-docutils \
-          python3-sphinx
+        pkgs="graphviz libedit-dev pkg-config python3-docutils python3-sphinx"
+        if [ "${{ steps.refs.outputs.PCRE_VARIANT }}" = "1" ]; then
+          pkgs="$pkgs libpcre3-dev"
+        else
+          pkgs="$pkgs libpcre2-dev"
+        fi
+        sudo apt-get purge -y $pkgs
     - name: Cleanup
       if: runner.os == 'macOS'
       shell: bash
       run: |
-        brew uninstall \
-          automake \
-          docutils \
-          libtool \
-          sphinx-doc
+        pkgs="automake docutils graphviz libtool sphinx-doc"
+        if [ "${{ steps.refs.outputs.PCRE_VARIANT }}" = "1" ]; then
+          pkgs="$pkgs pcre"
+        fi
+        brew uninstall $pkgs
