@@ -20,14 +20,19 @@ runs:
     - name: Determine refname and PCRE variant
       id: refs
       shell: bash
+      env:
+        VERSION: ${{ inputs.version }}
       run: |
-        version='${{ inputs.version }}'
-        # A bare x.y.z release is mapped to the upstream tag:
+        set -euo pipefail
+        version="$VERSION"
+        repo=https://code.vinyl-cache.org/vinyl-cache/vinyl-cache
+        # A release is mapped to the upstream tag:
         #   vinyl-cache-x.y.z for the >= 9.0 (vinyl*) rebrand,
         #   varnish-x.y.z     for older releases.
+        # A major.minor input resolves to the highest patch tag in that series.
         # Anything else (main, a branch, the 'last' tag) is used as-is and
-        # treated as trunk, which is Vinyl (PCRE2).
-        if [[ $version =~ ^([0-9]+)\.([0-9]+)\.[0-9]+$ ]]; then
+        # uses PCRE2.
+        if [[ $version =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
           major=${BASH_REMATCH[1]}
           minor=${BASH_REMATCH[2]}
           if [ "$major" -ge 9 ]; then
@@ -35,20 +40,50 @@ runs:
           else
             refname="varnish-$version"
           fi
+        elif [[ $version =~ ^([0-9]+)\.([0-9]+)$ ]]; then
+          major=${BASH_REMATCH[1]}
+          minor=${BASH_REMATCH[2]}
+          if [ "$major" -ge 9 ]; then
+            tag_prefix="vinyl-cache-$version."
+          else
+            tag_prefix="varnish-$version."
+          fi
+          refname=$(git ls-remote --tags "$repo" "refs/tags/${tag_prefix}*" |
+            awk -v prefix="$tag_prefix" '
+              {
+                ref = $2
+                sub(/^refs\/tags\//, "", ref)
+                sub(/\^\{\}$/, "", ref)
+                if (index(ref, prefix) == 1) {
+                  patch = substr(ref, length(prefix) + 1)
+                  if (patch ~ /^[0-9]+$/ && (!found || patch + 0 > highest)) {
+                    highest = patch + 0
+                    resolved = ref
+                    found = 1
+                  }
+                }
+              }
+              END { if (found) print resolved }
+            ')
+          if [ -z "$refname" ]; then
+            echo "error: no release tag found for version series $version" >&2
+            exit 1
+          fi
+          echo "Resolved version series $version to $refname"
         else
           major=99
           minor=99
           refname="$version"
         fi
         # PCRE variant: Varnish 6.0.x/6.1.x use PCRE1 (libpcre); 6.2+, 7.x, 8.x
-        # and Vinyl 9.x (plus trunk) use PCRE2 (libpcre2-8).
+        # and Vinyl 9.x (plus non-version refs) use PCRE2 (libpcre2-8).
         if [ "$major" -eq 6 ] && [ "$minor" -lt 2 ]; then
           pcre=1
         else
           pcre=2
         fi
-        echo "REFNAME=$refname" >> $GITHUB_OUTPUT
-        echo "PCRE_VARIANT=$pcre" >> $GITHUB_OUTPUT
+        echo "REFNAME=$refname" >> "$GITHUB_OUTPUT"
+        echo "PCRE_VARIANT=$pcre" >> "$GITHUB_OUTPUT"
     - name: Install dependencies
       if: runner.os == 'Linux'
       shell: bash

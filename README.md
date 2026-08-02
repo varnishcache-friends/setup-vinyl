@@ -29,22 +29,24 @@ steps:
 
 ### `version`
 
-A bare `x.y.z` release is mapped to the upstream tag automatically:
+A release is mapped to the upstream tag automatically:
 
 - **`vinyl-cache-x.y.z`** for 9.0+ - the `vinyl*` rebrand; installs the `vinyld` binary.
 - **`varnish-x.y.z`** for older releases (8.x, 6.x, ...) - installs the `varnishd` binary.
 
-Anything else (`main`, a branch, the `last` tag) is used as-is and treated as
-trunk. The action supports both eras.
+A `major.minor` version (for example, `6.0`) resolves to the latest patch
+release in that series. Anything else (`main`, a branch, the `last` tag) is
+used as-is and uses PCRE2. The action supports both eras.
 
 ## Platform support
 
 The action supports Linux and macOS runners. Windows is unsupported and the
 action fails fast with a clear message.
 
-Required build dependencies (`libedit`, `docutils`, `sphinx`, `pcre2`,
-`graphviz`, `automake`, `libtool`, ...) are installed and then purged again at
-the end of the job so they don't linger on the runner image.
+Required build dependencies (`libedit`, `docutils`, `sphinx`, `graphviz`,
+`automake`, `libtool`, ...) are installed and then purged again at the end of
+the job so they don't linger on the runner image. The action selects PCRE1 for
+Varnish 6.0/6.1 and PCRE2 for all other versions.
 
 ## Verify the build
 

@@ -18,25 +18,28 @@ jobs:
             version: main
             product: vinyl
           - os: ubuntu-latest
+            version: '9.0'
+            product: vinyl
+          - os: ubuntu-latest
             version: '9.0.1'
             product: vinyl
           - os: ubuntu-latest
-            version: '8.0.2'
+            version: '8.0'
             product: varnish
           - os: ubuntu-latest
-            version: '6.0.18'
+            version: '6.0'
             product: varnish
           - os: macos-latest
             version: main
             product: vinyl
           - os: macos-latest
-            version: '9.0.1'
+            version: '9.0'
             product: vinyl
           - os: macos-latest
-            version: '8.0.2'
+            version: '8.0'
             product: varnish
           - os: macos-latest
-            version: '6.0.18'
+            version: '6.0'
             product: varnish
     steps:
       - uses: actions/checkout@v7
